@@ -5,6 +5,13 @@ const inputFile = path.join(__dirname, "input.json");
 
 const input = JSON.parse(fs.readFileSync(inputFile, "utf8"));
 
+const nodeMap = new Map();
+
+input.nodes.forEach((node) => {
+  nodeMap.set(node.id, node);
+});
+
+// Create Middleware
 const middlewareGenerator = (middlewareNodes) => {
   let middlewareCode = "";
   middlewareNodes.forEach((middleware) => {
@@ -51,36 +58,59 @@ const logger = (req, res, next) => {
   return middlewareCode;
 };
 
+// It will find out which routes to be authenticated based on the target field of the middlewares
 const routesToBeAuthenticated = (middlewares, routeId) => {
-  let middlewareToBeApplied = [];
-  middlewares.forEach((middleware) => {
+  for (const middleware of middlewares) {
     const targets = middleware.target;
     if (
       Array.isArray(targets) ? targets.includes(routeId) : targets == routeId
     ) {
-      if (middleware.name.includes("Logging Middleware")) {
-        middlewareToBeApplied.push("logger");
-      }
-      if (middleware.name.includes("Auth Middleware")) {
-        middlewareToBeApplied.push("authMiddleware");
-      }
-      if (middleware.name.includes("Admin Auth Middleware")) {
-        middlewareToBeApplied.push("adminMiddleware");
-      }
+      return middlewareString(middleware.name);
     }
-  });
-  return middlewareToBeApplied.length > 0
-    ? middlewareToBeApplied.join(", ")
-    : null;
+  }
+  return "";
 };
 
+// It will find out which routes to be authenticated based on the source field of the routes
+const middlewareToBeApplied = (node) => {
+  if (node.source == null) {
+    return "";
+  }
+
+  if (node.properties?.type == "middleware") {
+    return node.name;
+  }
+  return middlewareToBeApplied(nodeMap.get(node.source));
+};
+
+// It will generate a string of middlewares to be applied
+function middlewareString(middlewareName) {
+  let middlewaresArray = [];
+  if (middlewareName.includes("Logging Middleware")) {
+    middlewaresArray.push("logger");
+  }
+  if (middlewareName.includes("Auth Middleware")) {
+    middlewaresArray.push("authMiddleware");
+  }
+  if (middlewareName.includes("Admin Auth Middleware")) {
+    middlewaresArray.push("adminMiddleware");
+  }
+
+  return middlewaresArray.length > 0 ? middlewaresArray.join(", ") : "";
+}
+
+// It will generate the routes
 const routesGenerator = (middlewares, routesNodes) => {
   let routesCode = "";
   routesNodes.forEach((route) => {
-    let middlewareString = routesToBeAuthenticated(middlewares, route.id);
+    let middlewaresString = routesToBeAuthenticated(middlewares, route.id);
+    if (middlewaresString == "") {
+      const middlewareName = middlewareToBeApplied(route);
+      middlewaresString += middlewareString(middlewareName);
+    }
     routesCode += `
 app.${route.properties.method.toLowerCase()}('${route.properties.endpoint}'${
-      middlewareString ? ", " + middlewareString + ", " : ", "
+      middlewaresString ? ", " + middlewaresString + ", " : ", "
     }(req, res) => {
   res.json({ message: "${route.name} response" });
 });
@@ -89,6 +119,7 @@ app.${route.properties.method.toLowerCase()}('${route.properties.endpoint}'${
   return routesCode;
 };
 
+// It will generate the server code based on the routes and middlewares
 const serverCodeGenerator = (input) => {
   let serverCode = `
 const express = require('express');
