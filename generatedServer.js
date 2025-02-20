@@ -37,7 +37,7 @@ app.post('/signout', authMiddleware, (req, res) => {
   res.json({ message: "Signout Route response" });
 });
 
-app.get('/user', (req, res) => {
+app.get('/user', authMiddleware, (req, res) => {
   res.json({ message: "User Route response" });
 });
 
